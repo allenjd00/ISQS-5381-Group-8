@@ -60,6 +60,14 @@ target["y_grad_outcome_high"] = np.where(
 target_path = OUT / "project_target_unitid.csv"
 target.to_csv(target_path, index=False)
 
+distribution_counts = (
+    target["y_grad_outcome_high"]
+    .dropna()
+    .astype("Int64")
+    .value_counts()
+    .sort_index()
+)
+
 report = {
     "source": "gr2024.csv",
     "target_definition": {
@@ -73,8 +81,8 @@ report = {
         "with_binary_target": int(target["y_grad_outcome_high"].notna().sum()),
     },
     "target_distribution": {
-        str(int(key)): int(value)
-        for key, value in target["y_grad_outcome_high"].dropna().value_counts().to_dict().items()
+        str(label): int(count)
+        for label, count in zip(distribution_counts.index.tolist(), distribution_counts.tolist())
     },
 }
 
