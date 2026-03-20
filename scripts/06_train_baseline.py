@@ -1,4 +1,4 @@
-import json
+import json # for baseline metrics export
 from pathlib import Path
 
 import numpy as np
