@@ -1,0 +1,178 @@
+# College Match Decision Support Model
+
+A reproducible data pipeline for building predictive models of college graduation outcomes from IPEDS institutional data.
+
+## Project Overview
+
+This pipeline integrates multiple IPEDS 2024-25 data sources (institutional characteristics, admissions, financial aid, cost, and graduation outcomes) to construct a modeling dataset and train baseline models for predicting institutional graduation rates.
+
+**Primary Objective:** Support college-match decision-making by predicting 6-year graduation rate outcomes (150% time to degree).
+
+## Data Sources
+
+The pipeline ingests 9 IPEDS CSV files:
+- `hd2024.csv` – Institutional characteristics
+- `ic2024.csv` – Institutional control/Carnegie classification
+- `flags2024.csv` – Institutional flags
+- `adm2024.csv` – Admissions data
+- `sfa2324.csv` – Student financial aid
+- `ef2024a.csv` – Enrollment by degree level (long format)
+- `gr2024.csv` – Graduation rates by cohort (long format)
+- `cost1_2024.csv` – Cost of attendance
+- `cost2_2024.csv` – Net price by income level
+
+*Note: Data files are not included in this repo. Download from [IPEDS via NSF](https://nces.ed.gov/ipeds/datacenter/).*
+
+## Pipeline Architecture
+
+The pipeline consists of 6 reproducible Python scripts, orchestrated by a runner:
+
+| Step | Script | Purpose | Input | Output |
+|------|--------|---------|-------|--------|
+| 00 | `00_run_pipeline.py` | **Orchestrator:** runs all steps in sequence, records manifest | N/A | `pipeline_run_manifest.json` |
+| 01 | `01_data_audit.py` | Profile CSVs; compute join coverage | Raw CSVs | `data_audit_summary.csv`, `unitid_join_coverage.json`, `input_inventory.csv` |
+| 04 | `04_flatten_longformat_ef_gr.py` | Convert multi-row EF/GR to institution-level aggregates | `ef2024a.csv`, `gr2024.csv` | `longformat_unitid_features.csv` |
+| 02 | `02_build_analysis_base.py` | Left-join all sources into master table | All CSVs + flattened EF/GR | `analysis_base.csv` (6072 institutions × 1592 columns) |
+| 05 | `05_build_project_target.py` | Derive binary graduation outcome target from GR cohorts | `gr2024.csv` | `project_target_unitid.csv` (3636 institutions with valid outcomes) |
+| 03 | `03_build_modeling_ready.py` | Merge analysis base + target; select features; encode | `analysis_base.csv`, `project_target_unitid.csv` | `modeling_ready.csv`, `variable_map.csv` |
+| 06 | `06_train_baseline.py` | Train logistic regression and random forest models | `modeling_ready.csv` | `baseline_metrics.json`, `baseline_feature_importance.csv` |
+
+## Quick Start
+
+### 1. Clone and Setup Environment
+
+```bash
+git clone https://github.com/YOUR_USERNAME/college-match-model.git
+cd college-match-model
+
+# Create virtual environment
+python -m venv .venv
+.venv\Scripts\activate  # Windows
+# source .venv/bin/activate  # macOS/Linux
+
+# Install dependencies
+pip install -r requirements.txt
+```
+
+### 2. Acquire Data
+
+Download IPEDS datasets from [IPEDS Data Center](https://nces.ed.gov/ipeds/datacenter/) and place in project root:
+- `hd2024.csv`, `ic2024.csv`, `flags2024.csv`, `adm2024.csv`, `sfa2324.csv`, `ef2024a.csv`, `gr2024.csv`, `cost1_2024.csv`, `cost2_2024.csv`
+
+### 3. Run Pipeline
+
+```bash
+python scripts/00_run_pipeline.py
+```
+
+This executes all steps in sequence and generates:
+- `outputs/analysis_base.csv` – merged institutional data
+- `outputs/modeling_ready.csv` – feature-selected dataset (3636 institutions)
+- `outputs/variable_map.csv` – data dictionary (1598 columns, roles, descriptions)
+- `outputs/baseline_metrics.json` – model evaluation metrics
+- `outputs/baseline_feature_importance.csv` – feature rankings
+- `outputs/pipeline_run_manifest.json` – execution log with timestamps and shapes
+
+## Model Performance (Baseline)
+
+Test set evaluation on held-out 20% (727 institutions):
+
+| Model | Accuracy | Precision | Recall | F1 | ROC-AUC |
+|-------|----------|-----------|--------|--------|---------|
+| Logistic Regression | 0.793 | 0.787 | 0.799 | 0.792 | 0.882 |
+| Random Forest | 0.824 | 0.823 | 0.824 | 0.822 | 0.911 |
+
+**Top Features (Random Forest):**
+1. `adm_APPLCN` – Number of applicants (1.67% importance)
+2. `adm_ENRLT` – Number enrolled (1.20%)
+3. `cost1_ROOMCAP` – Room and board (1.04%)
+4. `hd_SECTOR` – Institutional sector (0.91%)
+5. `sfa_UPGRNTP` – Undergraduate grant proportion (0.49%)
+
+See `outputs/baseline_feature_importance.csv` for full ranking.
+
+## Project Structure
+
+```
+college-match-model/
+├── scripts/
+│   ├── 00_run_pipeline.py          # Orchestrator
+│   ├── 01_data_audit.py            # Data profiling
+│   ├── 02_build_analysis_base.py   # Merge all sources
+│   ├── 03_build_modeling_ready.py  # Feature selection
+│   ├── 04_flatten_longformat_ef_gr.py  # Long-format aggregation
+│   ├── 05_build_project_target.py  # Target derivation
+│   └── 06_train_baseline.py        # Model training
+├── outputs/                        # Generated by pipeline
+├── .gitignore
+├── README.md                       # This file
+└── requirements.txt                # Python dependencies
+```
+
+## Key Concepts
+
+### Target Variable
+**`y_grad_outcome_high`** – Binary classification (high/low graduation rate):
+- Derived from GR completion rate (150% time to degree)
+- Split at median (0.508): institutions above median = 1, below = 0
+- Balanced distribution: 1,818 positive / 1,818 negative (out of 3,636 with valid data)
+
+### Feature Set (36 features in `modeling_ready.csv`)
+- **Institutional:** Sector, control type, pipeline, enrollment size
+- **Admissions:** Applicants, enrollment, SAT/ACT scores
+- **Financial Aid:** Pell grants, loan amounts, grant proportions
+- **Cost:** Tuition, fees, room & board, net prices by income
+- **Long-format EF:** Aggregated enrollment by degree level
+
+*Note: GR-derived features explicitly excluded to prevent target leakage.*
+
+### Data Quality
+- Join coverage varies by source (see `unitid_join_coverage.json`)
+- All sentinel values (-3, -2, -1) imputed by scikit-learn pipeline
+- Deterministic checksums recorded in `input_inventory.csv`
+
+## Reproducibility
+
+All steps are deterministic (fixed random seeds):
+- Stratified 80/20 train/test split with `random_state=42`
+- Random Forest with `random_state=42`
+- Pipeline execution timestamps and return codes logged in `pipeline_run_manifest.json`
+
+To verify pipeline integrity:
+```bash
+python scripts/00_run_pipeline.py
+# Check outputs/pipeline_run_manifest.json for status
+```
+
+## Next Steps
+
+- **Fairness analysis:** Outcomes by institutional control/size/geography
+- **Threshold optimization:** Calibrate decision thresholds for recommendation layer
+- **Feature engineering:** Incorporate longitudinal trends (multi-year enrollment)
+- **External enrichment:** Join College Scorecard employment/earnings data
+- **Dashboard:** Build Streamlit interface for college recommendation
+
+## Dependencies
+
+See `requirements.txt` for full list. Key packages:
+- `pandas` – data manipulation
+- `scikit-learn` – preprocessing, models, metrics
+- `numpy` – numerical operations
+
+## Contributing
+
+For questions or improvements, please open an issue or submit a pull request.
+
+## License
+
+MIT License – see LICENSE file for details.
+
+## Authors
+
+Data Science Senior Project, Team 8
+
+## References
+
+- [IPEDS Data Center](https://nces.ed.gov/ipeds/datacenter/)
+- [College Scorecard](https://collegescorecard.ed.gov/data/)
+- scikit-learn [Pipeline Documentation](https://scikit-learn.org/stable/modules/generated/sklearn.pipeline.Pipeline.html)
