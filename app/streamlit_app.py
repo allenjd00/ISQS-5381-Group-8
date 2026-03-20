@@ -45,11 +45,35 @@ for col in [
 
 states = sorted([s for s in base.get("hd_STABBR", pd.Series(dtype=str)).dropna().astype(str).unique().tolist() if s.strip()])
 
+career_focus_presets = {
+    "Any": [],
+    "Business/Management": ["business", "management", "commerce"],
+    "Engineering/Technology": ["engineering", "technology", "polytechnic", "tech"],
+    "Health/Nursing": ["health", "nursing", "medical", "biomedical"],
+    "Education/Teaching": ["education", "teaching", "teachers"],
+    "Arts/Design": ["art", "design", "music", "performing"],
+    "Culinary/Hospitality": ["culinary", "hospitality", "chef"],
+    "Religious/Theology": ["theology", "seminary", "bible", "ministry", "christian"],
+}
+
 with st.sidebar:
     st.header("Preferences")
     preferred_state = st.selectbox("Preferred State", options=["Any"] + states, index=0)
+    enforce_state_filter = st.checkbox("Require preferred state", value=True)
     max_budget = st.number_input("Max Annual Budget ($)", min_value=0, max_value=200000, value=40000, step=1000)
+    require_known_cost = st.checkbox("Require known annual cost", value=True)
     top_n = st.slider("How many results?", min_value=3, max_value=10, value=3)
+
+    st.subheader("Career/Program Fit")
+    career_focus = st.selectbox("Career focus preset", options=list(career_focus_presets.keys()), index=0)
+    include_keywords_raw = st.text_input(
+        "Include school name keywords (comma-separated)",
+        value=", ".join(career_focus_presets[career_focus]),
+    )
+    exclude_keywords_raw = st.text_input(
+        "Exclude school name keywords (comma-separated)",
+        value="theology, seminary, bible, culinary",
+    )
 
     st.subheader("Factor Weights")
     w_academic = st.slider("Academic Quality", 0.0, 1.0, 0.74, 0.01)
@@ -74,23 +98,58 @@ else:
 
 data = base.copy()
 
+data["_inst_name"] = data.get("hd_INSTNM", pd.Series("", index=data.index)).astype(str).str.lower()
+
+include_keywords = [keyword.strip().lower() for keyword in include_keywords_raw.split(",") if keyword.strip()]
+exclude_keywords = [keyword.strip().lower() for keyword in exclude_keywords_raw.split(",") if keyword.strip()]
+
+if include_keywords:
+    include_mask = pd.Series(False, index=data.index)
+    for keyword in include_keywords:
+        include_mask = include_mask | data["_inst_name"].str.contains(keyword, na=False)
+    data = data.loc[include_mask].copy()
+
+if exclude_keywords:
+    exclude_mask = pd.Series(False, index=data.index)
+    for keyword in exclude_keywords:
+        exclude_mask = exclude_mask | data["_inst_name"].str.contains(keyword, na=False)
+    data = data.loc[~exclude_mask].copy()
+
 if preferred_state != "Any" and "hd_STABBR" in data.columns:
-    state_match = (data["hd_STABBR"].astype(str) == preferred_state).astype(float)
-    data["score_location_fit_personalized"] = state_match
+    state_match = (data["hd_STABBR"].astype(str) == preferred_state)
+    if enforce_state_filter:
+        data = data.loc[state_match].copy()
+        data["score_location_fit_personalized"] = 1.0
+    else:
+        data["score_location_fit_personalized"] = state_match.astype(float)
 else:
     data["score_location_fit_personalized"] = data["score_location_fit_base"].fillna(0.5)
 
 if "estimated_annual_cost" in data.columns:
-    budget_ok = data["estimated_annual_cost"].isna() | (data["estimated_annual_cost"] <= max_budget)
+    if require_known_cost:
+        budget_ok = data["estimated_annual_cost"].notna() & (data["estimated_annual_cost"] <= max_budget)
+    else:
+        budget_ok = data["estimated_annual_cost"].isna() | (data["estimated_annual_cost"] <= max_budget)
     data = data.loc[budget_ok].copy()
 
+if "score_cost_affordability" in data.columns:
+    data["score_cost_affordability_user"] = data["score_cost_affordability"].fillna(0.2)
+    if "estimated_annual_cost" in data.columns:
+        missing_cost_mask = data["estimated_annual_cost"].isna()
+        data.loc[missing_cost_mask, "score_cost_affordability_user"] = np.minimum(
+            data.loc[missing_cost_mask, "score_cost_affordability_user"],
+            0.2,
+        )
+else:
+    data["score_cost_affordability_user"] = 0.2
+
 if data.empty:
-    st.warning("No institutions match current budget filter. Increase max budget to see results.")
+    st.warning("No institutions match your current state/career/budget filters. Relax one filter and try again.")
     st.stop()
 
 data["score_composite_user"] = (
     data["score_academic_quality"].fillna(0.5) * weights["score_academic_quality"]
-    + data["score_cost_affordability"].fillna(0.5) * weights["score_cost_affordability"]
+    + data["score_cost_affordability_user"].fillna(0.2) * weights["score_cost_affordability"]
     + data["score_career_proxy"].fillna(0.5) * weights["score_career_proxy"]
     + data["score_location_fit_personalized"].fillna(0.5) * weights["score_location_fit_base"]
     + data["score_safety_qol_proxy"].fillna(0.5) * weights["score_safety_qol_proxy"]
@@ -106,7 +165,7 @@ display_cols = [
     "hd_STABBR",
     "estimated_annual_cost",
     "score_academic_quality",
-    "score_cost_affordability",
+    "score_cost_affordability_user",
     "score_career_proxy",
     "score_location_fit_personalized",
     "score_safety_qol_proxy",
@@ -120,6 +179,8 @@ st.dataframe(top[display_cols], use_container_width=True)
 st.subheader("Why these results")
 st.markdown(
     "- Scores are weighted by your slider settings and normalized to sum to 1."
+    "\n- Unknown cost can be excluded (recommended) or penalized in scoring."
+    "\n- Career/program filters use institution-name keyword matching in this MVP."
     "\n- Career and safety use IPEDS proxies in this MVP (not direct placement/safety outcomes)."
     "\n- Use this as a decision-support prototype, not a definitive ranking."
 )
