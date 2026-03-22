@@ -46,3 +46,7 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Local scratch
+.basura
+.basura/
