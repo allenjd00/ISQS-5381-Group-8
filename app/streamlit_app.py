@@ -66,9 +66,11 @@ with st.sidebar:
 
     st.subheader("Career/Program Fit")
     career_focus = st.selectbox("Career focus preset", options=list(career_focus_presets.keys()), index=0)
+    strict_career_filter = st.checkbox("Apply career keywords as strict filter", value=False)
     include_keywords_raw = st.text_input(
         "Include school name keywords (comma-separated)",
-        value=", ".join(career_focus_presets[career_focus]),
+        value="",
+        placeholder=", ".join(career_focus_presets[career_focus]),
     )
     exclude_keywords_raw = st.text_input(
         "Exclude school name keywords (comma-separated)",
@@ -103,11 +105,22 @@ data["_inst_name"] = data.get("hd_INSTNM", pd.Series("", index=data.index)).asty
 include_keywords = [keyword.strip().lower() for keyword in include_keywords_raw.split(",") if keyword.strip()]
 exclude_keywords = [keyword.strip().lower() for keyword in exclude_keywords_raw.split(",") if keyword.strip()]
 
-if include_keywords:
+preset_keywords = career_focus_presets.get(career_focus, [])
+effective_include_keywords = include_keywords if include_keywords else preset_keywords
+
+if effective_include_keywords and strict_career_filter:
     include_mask = pd.Series(False, index=data.index)
-    for keyword in include_keywords:
+    for keyword in effective_include_keywords:
         include_mask = include_mask | data["_inst_name"].str.contains(keyword, na=False)
     data = data.loc[include_mask].copy()
+
+if effective_include_keywords and not strict_career_filter:
+    include_mask = pd.Series(False, index=data.index)
+    for keyword in effective_include_keywords:
+        include_mask = include_mask | data["_inst_name"].str.contains(keyword, na=False)
+    data["score_career_focus_match"] = include_mask.astype(float)
+else:
+    data["score_career_focus_match"] = 0.5
 
 if exclude_keywords:
     exclude_mask = pd.Series(False, index=data.index)
@@ -150,7 +163,8 @@ if data.empty:
 data["score_composite_user"] = (
     data["score_academic_quality"].fillna(0.5) * weights["score_academic_quality"]
     + data["score_cost_affordability_user"].fillna(0.2) * weights["score_cost_affordability"]
-    + data["score_career_proxy"].fillna(0.5) * weights["score_career_proxy"]
+    + ((data["score_career_proxy"].fillna(0.5) * 0.8) + (data["score_career_focus_match"].fillna(0.5) * 0.2))
+    * weights["score_career_proxy"]
     + data["score_location_fit_personalized"].fillna(0.5) * weights["score_location_fit_base"]
     + data["score_safety_qol_proxy"].fillna(0.5) * weights["score_safety_qol_proxy"]
 )
@@ -161,12 +175,15 @@ top.insert(0, "rank_user", np.arange(1, len(top) + 1))
 display_cols = [
     "rank_user",
     "UNITID",
+    "school_display_name",
     "hd_INSTNM",
+    "hd_CITY",
     "hd_STABBR",
     "estimated_annual_cost",
     "score_academic_quality",
     "score_cost_affordability_user",
     "score_career_proxy",
+    "score_career_focus_match",
     "score_location_fit_personalized",
     "score_safety_qol_proxy",
     "score_composite_user",
@@ -180,10 +197,14 @@ st.subheader("Why these results")
 st.markdown(
     "- Scores are weighted by your slider settings and normalized to sum to 1."
     "\n- Unknown cost can be excluded (recommended) or penalized in scoring."
-    "\n- Career/program filters use institution-name keyword matching in this MVP."
+    "\n- Career preset keywords apply automatically unless you enter custom include keywords."
+    "\n- Career/program keywords are soft-matched by default; enable strict filter only when needed."
     "\n- Career and safety use IPEDS proxies in this MVP (not direct placement/safety outcomes)."
     "\n- Use this as a decision-support prototype, not a definitive ranking."
 )
+
+with st.expander("Career keywords in effect"):
+    st.write(effective_include_keywords)
 
 with st.expander("Normalized Weights Used"):
     st.json(weights)

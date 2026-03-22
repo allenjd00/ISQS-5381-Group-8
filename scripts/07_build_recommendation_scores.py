@@ -26,7 +26,7 @@ project_target = pd.read_csv(PROJECT_TARGET, low_memory=False)
 for frame in (analysis_base, modeling_ready, project_target):
     frame.replace({-3: np.nan, -2: np.nan, -1: np.nan, "-3": np.nan, "-2": np.nan, "-1": np.nan}, inplace=True)
 
-base = analysis_base[[col for col in ["UNITID", "hd_INSTNM", "hd_STABBR", "hd_LOCALE", "hd_OBEREG", "ic_STUSRV3", "ic_STUSRV4"] if col in analysis_base.columns]].copy()
+base = analysis_base[[col for col in ["UNITID", "hd_INSTNM", "hd_CITY", "hd_STABBR", "hd_LOCALE", "hd_OBEREG", "ic_STUSRV3", "ic_STUSRV4"] if col in analysis_base.columns]].copy()
 base = base.merge(modeling_ready[[col for col in modeling_ready.columns if col == "UNITID" or col.startswith(("adm_", "sfa_", "cost1_", "cost2_", "longfmt_ef_"))]], on="UNITID", how="left")
 base = base.merge(project_target[[col for col in ["UNITID", "gr_completion_rate_150", "y_grad_outcome_high"] if col in project_target.columns]], on="UNITID", how="left")
 
@@ -145,10 +145,22 @@ base["score_composite_default"] = (
 ranked = base.sort_values("score_composite_default", ascending=False).copy()
 ranked["rank_default"] = np.arange(1, len(ranked) + 1)
 
+if "hd_INSTNM" in ranked.columns and "hd_CITY" in ranked.columns and "hd_STABBR" in ranked.columns:
+    ranked["school_display_name"] = (
+        ranked["hd_INSTNM"].astype(str)
+        + " ("
+        + ranked["hd_CITY"].astype(str)
+        + ", "
+        + ranked["hd_STABBR"].astype(str)
+        + ")"
+    )
+
 output_cols = [
     "rank_default",
     "UNITID",
+    "school_display_name",
     "hd_INSTNM",
+    "hd_CITY",
     "hd_STABBR",
     "estimated_annual_cost",
     "score_academic_quality",
