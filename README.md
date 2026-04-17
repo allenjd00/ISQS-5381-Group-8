@@ -89,6 +89,8 @@ The app reads `outputs/recommendation_base_scores.csv` and supports a mockup UI 
 - Cascading historical/future panel behavior
 - Placeholder image mapping from `img/` for concept demos
 
+For Streamlit Community Cloud, `outputs/recommendation_base_scores.csv` must be committed so the app can start without rebuilding the full pipeline at deploy time.
+
 ## Model Performance (Baseline)
 
 Test set evaluation on held-out 20% (727 institutions):

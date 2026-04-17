@@ -1,0 +1,29 @@
+{
+  "source_files": [
+    "analysis_base.csv",
+    "modeling_ready.csv",
+    "project_target_unitid.csv"
+  ],
+  "row_count": 6072,
+  "weights_raw": {
+    "score_academic_quality": 0.74,
+    "score_cost_affordability": 0.67,
+    "score_career_proxy": 0.73,
+    "score_location_fit_base": 0.47,
+    "score_safety_qol_proxy": 0.35
+  },
+  "weights_normalized": {
+    "score_academic_quality": 0.25,
+    "score_cost_affordability": 0.22635135135135137,
+    "score_career_proxy": 0.24662162162162163,
+    "score_location_fit_base": 0.15878378378378377,
+    "score_safety_qol_proxy": 0.11824324324324324
+  },
+  "component_notes": {
+    "score_academic_quality": "Completion rate plus admissions/enrollment proxies",
+    "score_cost_affordability": "Inverse-scaled tuition/fees/net-price proxies",
+    "score_career_proxy": "Proxy only (services + completion), not direct placement outcomes",
+    "score_location_fit_base": "Neutral baseline; personalized in app",
+    "score_safety_qol_proxy": "Neutral proxy in current IPEDS-only build"
+  }
+}
