@@ -89,6 +89,7 @@ logit_model = Pipeline(
         ("preprocess", preprocess_logit),
         (
             "model",
+            # Logistic regression: linear classifier that estimates class probability using a sigmoid link.
             LogisticRegression(
                 max_iter=2000,
                 random_state=42,
@@ -102,6 +103,7 @@ rf_model = Pipeline(
         ("preprocess", preprocess_rf),
         (
             "model",
+            # Random forest: ensemble of decision trees trained on random samples/features and combined by voting.
             RandomForestClassifier(
                 n_estimators=400,
                 random_state=42,

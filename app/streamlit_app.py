@@ -7,6 +7,35 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs"
 SCORES_FILE = OUT / "recommendation_base_scores.csv"
+IMG_DIR = ROOT / "img"
+
+
+def render_placeholder_images(code: str, prefix: str) -> None:
+    image_paths = sorted(IMG_DIR.glob(f"{prefix}_*.png"))
+    if not image_paths:
+        st.warning(f"No placeholder images found for {code} using pattern: img/{prefix}_*.png")
+        return
+
+    st.caption(f"Placeholder images for {code}: img/{prefix}_*.png")
+    for path in image_paths:
+        st.image(str(path), caption=path.name, use_container_width=True)
+
+
+def render_placeholder_images_multi(code: str, prefixes: list[str]) -> None:
+    found_any = False
+    for prefix in prefixes:
+        image_paths = sorted(IMG_DIR.glob(f"{prefix}_*.png"))
+        if not image_paths:
+            st.warning(f"No placeholder images found for {code} using pattern: img/{prefix}_*.png")
+            continue
+
+        found_any = True
+        st.caption(f"Placeholder images for {code}: img/{prefix}_*.png")
+        for path in image_paths:
+            st.image(str(path), caption=path.name, use_container_width=True)
+
+    if not found_any:
+        st.warning(f"No placeholder images found for {code} using patterns: {', '.join([f'img/{p}_*.png' for p in prefixes])}")
 
 st.set_page_config(page_title="College Match MVP", layout="wide")
 st.title("College Match MVP")
@@ -192,6 +221,108 @@ display_cols = [c for c in display_cols if c in top.columns]
 
 st.subheader(f"Top {top_n} Matches")
 st.dataframe(top[display_cols], use_container_width=True)
+
+# Price Trends: selection is constrained to institutions shown in the top table.
+price_choice_df = top.copy()
+price_choice_df["school_label"] = (
+    price_choice_df.get("school_display_name", pd.Series("", index=price_choice_df.index))
+    .fillna("")
+    .astype(str)
+)
+blank_label_mask = price_choice_df["school_label"].str.strip() == ""
+if "hd_INSTNM" in price_choice_df.columns:
+    price_choice_df.loc[blank_label_mask, "school_label"] = price_choice_df.loc[blank_label_mask, "hd_INSTNM"].astype(str)
+
+price_choice_df["selector_label"] = (
+    "#"
+    + price_choice_df["rank_user"].astype(int).astype(str)
+    + " - "
+    + price_choice_df["school_label"].astype(str)
+    + " (UNITID: "
+    + price_choice_df["UNITID"].astype(str)
+    + ")"
+)
+
+st.subheader("Price Trends")
+with st.container(border=True):
+    school_option = st.selectbox(
+        "Selected school (from Top Matches)",
+        options=price_choice_df["selector_label"].tolist(),
+        index=0,
+        key="price_trends_school_selector",
+    )
+
+    selected_price_row = price_choice_df.loc[price_choice_df["selector_label"] == school_option].iloc[0]
+    st.markdown(f"**School:** {selected_price_row['school_label']}")
+    st.caption(f"Linked UNITID: {selected_price_row['UNITID']}")
+
+    price_trend_options = {
+        "PT1": "Historical Tuition & Fees",
+        "PT2": "Future Tuition & Fees (Est.)",
+    }
+
+    trend_mode_code = st.radio(
+        "View",
+        options=list(price_trend_options.keys()),
+        format_func=lambda code: f"{code} - {price_trend_options[code]}",
+        horizontal=True,
+        key="price_trends_mode",
+    )
+
+    if trend_mode_code == "PT1":
+        st.info("PT1 selected. Historical Tuition & Fees is active.")
+    else:
+        st.info("PT2 selected. Future Tuition & Fees (Est.) is active.")
+
+historical_mode_code = None
+detail_box_title = "Historical" if trend_mode_code == "PT1" else "Future Tuition+Fees Estimate"
+
+st.subheader(detail_box_title)
+with st.container(border=True):
+    st.markdown(f"**School:** {selected_price_row['school_label']}")
+    st.caption(f"Linked UNITID: {selected_price_row['UNITID']}")
+
+    historical_options = {
+        "HS1": "Price vs. Median",
+        "HS2": "Price Difference from Market",
+        "HS3": "Year over Year Price Change % vs. Market",
+    }
+
+    if trend_mode_code == "PT1":
+        historical_mode_code = st.radio(
+            "Historical View",
+            options=list(historical_options.keys()),
+            format_func=lambda code: f"{code} - {historical_options[code]}",
+            horizontal=True,
+            key="historical_mode",
+        )
+
+        st.info(f"{historical_mode_code} selected. {historical_options[historical_mode_code]} placeholder is ready for wiring.")
+
+        hs_image_prefix = {
+            "HS1": "1",
+            "HS2": "2",
+            "HS3": "3",
+        }
+        render_placeholder_images(historical_mode_code, hs_image_prefix[historical_mode_code])
+    else:
+        st.info("PT2 selected. Displaying future estimate placeholders (images 4 and 5).")
+        render_placeholder_images_multi("PT2", ["4", "5"])
+
+st.subheader("Selection Map")
+with st.container(border=True):
+    st.caption("Scaffold block for add/delete iterations. Remove anytime.")
+    st.write(
+        {
+            "selected_unitid": str(selected_price_row["UNITID"]),
+            "selected_school": str(selected_price_row["school_label"]),
+            "price_trends_code": trend_mode_code,
+            "price_trends_label": price_trend_options[trend_mode_code],
+            "detail_box_label": detail_box_title,
+            "historical_code": historical_mode_code if historical_mode_code is not None else "N/A (requires PT1)",
+            "historical_label": historical_options[historical_mode_code] if historical_mode_code is not None else "N/A (requires PT1)",
+        }
+    )
 
 st.subheader("Why these results")
 st.markdown(
