@@ -1,0 +1,35 @@
+Libraries
+streamlit
+pandas
+altair
+numpy
+
+pip install -r requirements.txt
+
+
+# Value-Added Earnings by Major Dashboard
+
+## Files Included
+- Dashboard_Value_byMajor.py  (Streamlit app)
+- value_added_by_major.csv    (dataset required by the app)
+- requirements.txt            (Python dependencies)
+
+## How to Run
+1. Install dependencies:
+   pip install -r requirements.txt
+
+2. Run the app:
+   streamlit run Dashboard_Value_byMajor.py
+
+3. The dashboard will open in your browser at:
+   http://localhost:8501
+
+## Adding Your Own Subsection
+Open Dashboard_Value_byMajor.py and scroll to the bottom.
+Add your new Streamlit components under the section labeled:
+
+    # ---------------------------------------------------------
+    # Add Your Subsection Here
+    # ---------------------------------------------------------
+
+Your code will appear below the interpretation section in the app.
