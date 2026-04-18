@@ -87,9 +87,30 @@ streamlit run app/streamlit_app.py
 The app reads `outputs/recommendation_base_scores.csv` and supports a mockup UI with:
 - Price Trends (`PT1`, `PT2`) selection
 - Cascading historical/future panel behavior
-- Placeholder image mapping from `img/` for concept demos
+- Historical tuition charts (HS1/HS2/HS3) rendered from `data/panel_costs.csv`
+- AutoReg-based 4-year tuition forecast for PT2
+- Value-added by major section with 3 selectors (Campus, Field of Study, Earnings Metric) from `data/value_added_by_major.csv`
 
 For Streamlit Community Cloud, `outputs/recommendation_base_scores.csv` must be committed so the app can start without rebuilding the full pipeline at deploy time.
+
+## Contributor Inputs (April 2026)
+
+New contributor files are staged in tracked locations:
+- `data/panel_costs.csv` (Amanda source for historical + forecast tuition visualizations)
+- `data/value_added_by_major.csv` (Pedro source for major-level value-added dashboard)
+- `docs/contrib_inputs/pedro_requirements_steps.txt` (integration notes for final paper)
+- `docs/contrib_inputs/amanda_tuition_ui_mockup.pdf` (backup reference document)
+
+### Large File Note
+
+`data/value_added_by_major.csv` is approximately 179 MB and is configured for Git LFS in `.gitattributes`.
+
+Before committing/pushing, initialize LFS once on your machine:
+
+```bash
+git lfs install
+git lfs track "data/value_added_by_major.csv"
+```
 
 ## Model Performance (Baseline)
 

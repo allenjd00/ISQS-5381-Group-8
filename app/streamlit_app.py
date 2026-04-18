@@ -1,41 +1,90 @@
 from pathlib import Path
 
+import altair as alt
 import numpy as np
 import pandas as pd
 import streamlit as st
+from statsmodels.tsa.ar_model import AutoReg
 
 ROOT = Path(__file__).resolve().parents[1]
 OUT = ROOT / "outputs"
 SCORES_FILE = OUT / "recommendation_base_scores.csv"
-IMG_DIR = ROOT / "img"
+PANEL_COSTS_FILE = ROOT / "data" / "panel_costs.csv"
+VALUE_ADDED_FILE = ROOT / "data" / "value_added_by_major.csv"
 
 
-def render_placeholder_images(code: str, prefix: str) -> None:
-    image_paths = sorted(IMG_DIR.glob(f"{prefix}_*.png"))
-    if not image_paths:
-        st.warning(f"No placeholder images found for {code} using pattern: img/{prefix}_*.png")
-        return
+@st.cache_data
+def load_panel_costs(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path, low_memory=False)
+    needed = {"Year", "unitid", "ISPrice", "OOSPrice"}
+    if not needed.issubset(df.columns):
+        missing = sorted(needed - set(df.columns))
+        raise ValueError(f"panel_costs.csv is missing required columns: {missing}")
+    df = df[["Year", "unitid", "ISPrice", "OOSPrice"]].copy()
+    df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
+    df["unitid"] = pd.to_numeric(df["unitid"], errors="coerce")
+    df["ISPrice"] = pd.to_numeric(df["ISPrice"], errors="coerce")
+    df["OOSPrice"] = pd.to_numeric(df["OOSPrice"], errors="coerce")
+    return df.dropna(subset=["Year", "unitid"]).copy()
 
-    st.caption(f"Placeholder images for {code}: img/{prefix}_*.png")
-    for path in image_paths:
-        st.image(str(path), caption=path.name, use_container_width=True)
+
+@st.cache_data
+def load_value_added(path: str) -> pd.DataFrame:
+    df = pd.read_csv(path, low_memory=False)
+    needed = {
+        "UNITID",
+        "CIPDESC",
+        "INSTNM",
+        "EARNINGS_METRIC",
+        "earnings_actual",
+        "earnings_pred",
+        "earnings_va",
+        "earnings_va_z",
+    }
+    if not needed.issubset(df.columns):
+        missing = sorted(needed - set(df.columns))
+        raise ValueError(f"value_added_by_major.csv is missing required columns: {missing}")
+
+    df = df.copy()
+    df["UNITID"] = pd.to_numeric(df["UNITID"], errors="coerce")
+    df = df.dropna(subset=["UNITID"]).copy()
+    df["UNITID"] = df["UNITID"].astype(int)
+    df["CIPDESC"] = df["CIPDESC"].astype(str).str.strip()
+    df["INSTNM"] = df["INSTNM"].astype(str).str.strip()
+    return df
 
 
-def render_placeholder_images_multi(code: str, prefixes: list[str]) -> None:
-    found_any = False
-    for prefix in prefixes:
-        image_paths = sorted(IMG_DIR.glob(f"{prefix}_*.png"))
-        if not image_paths:
-            st.warning(f"No placeholder images found for {code} using pattern: img/{prefix}_*.png")
-            continue
+def render_line_chart(df: pd.DataFrame, title: str) -> None:
+    chart = (
+        alt.Chart(df)
+        .mark_line(point=True)
+        .encode(
+            x=alt.X("Year:Q", title="Year"),
+            y=alt.Y("Value:Q"),
+            color=alt.Color("Series:N", title="Series"),
+            tooltip=["Year:Q", "Series:N", alt.Tooltip("Value:Q", format=",.2f")],
+        )
+        .properties(height=320, title=title)
+    )
+    st.altair_chart(chart, use_container_width=True)
 
-        found_any = True
-        st.caption(f"Placeholder images for {code}: img/{prefix}_*.png")
-        for path in image_paths:
-            st.image(str(path), caption=path.name, use_container_width=True)
 
-    if not found_any:
-        st.warning(f"No placeholder images found for {code} using patterns: {', '.join([f'img/{p}_*.png' for p in prefixes])}")
+def autoreg_forecast(series: pd.Series, horizon: int = 4, max_lags: int = 4) -> pd.Series | None:
+    clean = pd.to_numeric(series, errors="coerce").dropna().reset_index(drop=True)
+    n_obs = len(clean)
+    if n_obs < 6:
+        return None
+
+    lag = min(max_lags, n_obs - 2)
+    if lag < 1:
+        return None
+
+    try:
+        model = AutoReg(clean, lags=lag, old_names=False).fit()
+        pred = model.predict(start=n_obs, end=n_obs + horizon - 1)
+        return pd.Series(pred.values)
+    except Exception:
+        return None
 
 st.set_page_config(page_title="College Match MVP", layout="wide")
 st.title("College Match MVP")
@@ -272,10 +321,20 @@ with st.container(border=True):
     if trend_mode_code == "PT1":
         st.info("PT1 selected. Historical Tuition & Fees is active.")
     else:
-        st.info("PT2 selected. Future Tuition & Fees (Est.) is active.")
+        st.info("PT2 selected. Future Tuition & Fees (Est.) is active with AR forecasts.")
 
 historical_mode_code = None
 detail_box_title = "Historical" if trend_mode_code == "PT1" else "Future Tuition+Fees Estimate"
+
+panel_df = None
+panel_error = None
+if PANEL_COSTS_FILE.exists():
+    try:
+        panel_df = load_panel_costs(str(PANEL_COSTS_FILE))
+    except Exception as exc:
+        panel_error = str(exc)
+else:
+    panel_error = "Missing data/panel_costs.csv."
 
 st.subheader(detail_box_title)
 with st.container(border=True):
@@ -296,18 +355,301 @@ with st.container(border=True):
             horizontal=True,
             key="historical_mode",
         )
+        if panel_error:
+            st.warning(panel_error)
+        else:
+            selected_unitid = int(selected_price_row["UNITID"])
+            school_panel = panel_df.loc[panel_df["unitid"].astype(int) == selected_unitid].copy()
+            school_panel = school_panel.sort_values("Year").reset_index(drop=True)
 
-        st.info(f"{historical_mode_code} selected. {historical_options[historical_mode_code]} placeholder is ready for wiring.")
+            if school_panel.empty:
+                st.warning("No panel cost rows found for selected UNITID.")
+            else:
+                median_by_year = (
+                    panel_df.groupby("Year", as_index=False)[["ISPrice", "OOSPrice"]]
+                    .median()
+                    .rename(columns={"ISPrice": "Median_ISPrice", "OOSPrice": "Median_OOSPrice"})
+                )
+                comp = school_panel.merge(median_by_year, on="Year", how="left")
+                comp["IS_Dollar_Diff"] = comp["ISPrice"] - comp["Median_ISPrice"]
+                comp["OOS_Dollar_Diff"] = comp["OOSPrice"] - comp["Median_OOSPrice"]
+                comp["IS_YOY"] = comp["ISPrice"].pct_change() * 100
+                comp["Median_IS_YOY"] = comp["Median_ISPrice"].pct_change() * 100
+                comp["OOS_YOY"] = comp["OOSPrice"].pct_change() * 100
+                comp["Median_OOS_YOY"] = comp["Median_OOSPrice"].pct_change() * 100
 
-        hs_image_prefix = {
-            "HS1": "1",
-            "HS2": "2",
-            "HS3": "3",
-        }
-        render_placeholder_images(historical_mode_code, hs_image_prefix[historical_mode_code])
+                if historical_mode_code == "HS1":
+                    is_hist = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "School In-State",
+                            "Value": comp["ISPrice"],
+                        }
+                    )
+                    is_med = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "Median In-State",
+                            "Value": comp["Median_ISPrice"],
+                        }
+                    )
+                    oos_hist = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "School Out-of-State",
+                            "Value": comp["OOSPrice"],
+                        }
+                    )
+                    oos_med = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "Median Out-of-State",
+                            "Value": comp["Median_OOSPrice"],
+                        }
+                    )
+                    render_line_chart(pd.concat([is_hist, is_med], ignore_index=True), "In-State Price vs Median")
+                    render_line_chart(pd.concat([oos_hist, oos_med], ignore_index=True), "Out-of-State Price vs Median")
+
+                elif historical_mode_code == "HS2":
+                    diff_is = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "In-State Price Delta",
+                            "Value": comp["IS_Dollar_Diff"],
+                        }
+                    )
+                    diff_oos = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "Out-of-State Price Delta",
+                            "Value": comp["OOS_Dollar_Diff"],
+                        }
+                    )
+                    render_line_chart(diff_is, "In-State Dollar Difference from Median")
+                    render_line_chart(diff_oos, "Out-of-State Dollar Difference from Median")
+
+                else:
+                    yoy_is = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "School In-State YoY %",
+                            "Value": comp["IS_YOY"],
+                        }
+                    )
+                    yoy_is_med = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "Median In-State YoY %",
+                            "Value": comp["Median_IS_YOY"],
+                        }
+                    )
+                    yoy_oos = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "School Out-of-State YoY %",
+                            "Value": comp["OOS_YOY"],
+                        }
+                    )
+                    yoy_oos_med = pd.DataFrame(
+                        {
+                            "Year": comp["Year"],
+                            "Series": "Median Out-of-State YoY %",
+                            "Value": comp["Median_OOS_YOY"],
+                        }
+                    )
+                    render_line_chart(pd.concat([yoy_is, yoy_is_med], ignore_index=True), "In-State YoY Change vs Median")
+                    render_line_chart(pd.concat([yoy_oos, yoy_oos_med], ignore_index=True), "Out-of-State YoY Change vs Median")
     else:
-        st.info("PT2 selected. Displaying future estimate placeholders (images 4 and 5).")
-        render_placeholder_images_multi("PT2", ["4", "5"])
+        if panel_error:
+            st.warning(panel_error)
+        else:
+            selected_unitid = int(selected_price_row["UNITID"])
+            school_panel = panel_df.loc[panel_df["unitid"].astype(int) == selected_unitid].copy()
+            school_panel = school_panel.sort_values("Year").reset_index(drop=True)
+
+            if school_panel.empty:
+                st.warning("No panel cost rows found for selected UNITID.")
+            else:
+                is_pred = autoreg_forecast(school_panel["ISPrice"], horizon=4)
+                oos_pred = autoreg_forecast(school_panel["OOSPrice"], horizon=4)
+
+                if is_pred is None or oos_pred is None:
+                    st.warning("Not enough historical points to produce AutoReg forecast for this school.")
+                else:
+                    last_year = int(pd.to_numeric(school_panel["Year"], errors="coerce").max())
+                    future_years = pd.Series(range(last_year + 1, last_year + 5), name="Year")
+
+                    actual_is = pd.DataFrame(
+                        {
+                            "Year": school_panel["Year"],
+                            "Value": school_panel["ISPrice"],
+                            "Tuition": "In-State",
+                            "Status": "Actual",
+                        }
+                    )
+                    actual_oos = pd.DataFrame(
+                        {
+                            "Year": school_panel["Year"],
+                            "Value": school_panel["OOSPrice"],
+                            "Tuition": "Out-of-State",
+                            "Status": "Actual",
+                        }
+                    )
+                    fc_is = pd.DataFrame(
+                        {
+                            "Year": future_years,
+                            "Value": is_pred.values,
+                            "Tuition": "In-State",
+                            "Status": "Forecast",
+                        }
+                    )
+                    fc_oos = pd.DataFrame(
+                        {
+                            "Year": future_years,
+                            "Value": oos_pred.values,
+                            "Tuition": "Out-of-State",
+                            "Status": "Forecast",
+                        }
+                    )
+                    forecast_df = pd.concat([actual_is, actual_oos, fc_is, fc_oos], ignore_index=True)
+
+                    chart = (
+                        alt.Chart(forecast_df)
+                        .mark_line(point=True)
+                        .encode(
+                            x=alt.X("Year:Q", title="Year"),
+                            y=alt.Y("Value:Q", title="Tuition / Fees"),
+                            color=alt.Color("Tuition:N", title="Tuition Type"),
+                            strokeDash=alt.StrokeDash("Status:N", title="Series"),
+                            tooltip=[
+                                "Year:Q",
+                                "Tuition:N",
+                                "Status:N",
+                                alt.Tooltip("Value:Q", format=",.2f"),
+                            ],
+                        )
+                        .properties(height=360, title="Actual and 4-Year Forecast Tuition")
+                    )
+                    st.altair_chart(chart, use_container_width=True)
+
+                    preview = pd.DataFrame(
+                        {
+                            "Year": future_years,
+                            "Forecast_ISPrice": np.round(is_pred.values, 2),
+                            "Forecast_OOSPrice": np.round(oos_pred.values, 2),
+                        }
+                    )
+                    st.dataframe(preview, use_container_width=True)
+
+
+st.subheader("Value-Added by Major")
+with st.container(border=True):
+    if not VALUE_ADDED_FILE.exists():
+        st.warning("Missing data/value_added_by_major.csv. Add this file to enable major-level value-added charts.")
+    else:
+        try:
+            va_df = load_value_added(str(VALUE_ADDED_FILE))
+            va_df["CAMPUS_LABEL"] = va_df["INSTNM"] + " (UNITID: " + va_df["UNITID"].astype(str) + ")"
+
+            campus_labels = sorted(va_df["CAMPUS_LABEL"].dropna().unique().tolist())
+            if not campus_labels:
+                st.warning("No campus rows available in value-added dataset.")
+            else:
+                selected_unitid = int(selected_price_row["UNITID"])
+                default_label = None
+                school_match = va_df.loc[va_df["UNITID"] == selected_unitid, "CAMPUS_LABEL"]
+                if not school_match.empty:
+                    default_label = str(school_match.iloc[0])
+
+                default_index = campus_labels.index(default_label) if default_label in campus_labels else 0
+
+                selected_campus = st.selectbox(
+                    "Select Campus",
+                    options=campus_labels,
+                    index=default_index,
+                    key="va_selected_campus",
+                )
+
+                selected_campus_unitid = int(float(selected_campus.split("UNITID: ")[1].replace(")", "")))
+                school_va = va_df.loc[va_df["UNITID"] == selected_campus_unitid].copy()
+
+                field_options = sorted([x for x in school_va["CIPDESC"].dropna().unique().tolist() if str(x).strip()])
+                if not field_options:
+                    st.warning("No fields of study available for selected campus.")
+                else:
+                    selected_field = st.selectbox(
+                        "Select Field of Study",
+                        options=field_options,
+                        index=0,
+                        key="va_selected_field",
+                    )
+
+                    metric_map = {
+                        "EARN_MDN_1YR": "1-Year Median Earnings",
+                        "EARN_MDN_4YR": "4-Year Median Earnings",
+                        "EARN_MDN_5YR": "5-Year Median Earnings",
+                    }
+                    selected_metric_label = st.selectbox(
+                        "Select Earnings Metric",
+                        options=list(metric_map.values()),
+                        index=0,
+                        key="va_selected_metric",
+                    )
+                    selected_metric = [k for k, v in metric_map.items() if v == selected_metric_label][0]
+
+                    filtered = school_va.loc[
+                        (school_va["CIPDESC"] == selected_field)
+                        & (school_va["EARNINGS_METRIC"] == selected_metric)
+                    ].copy()
+
+                    if filtered.empty:
+                        st.warning("No data available for this campus/field/metric selection.")
+                    else:
+                        row = filtered.iloc[0]
+                        actual = pd.to_numeric(row.get("earnings_actual"), errors="coerce")
+                        pred = pd.to_numeric(row.get("earnings_pred"), errors="coerce")
+                        va = pd.to_numeric(row.get("earnings_va"), errors="coerce")
+                        zscore = pd.to_numeric(row.get("earnings_va_z"), errors="coerce")
+
+                        c1, c2, c3, c4 = st.columns(4)
+                        c1.metric("Actual Earnings", f"${actual:,.0f}" if pd.notna(actual) else "N/A")
+                        c2.metric("Predicted Earnings", f"${pred:,.0f}" if pd.notna(pred) else "N/A")
+                        c3.metric("Value-Added", f"${va:,.0f}" if pd.notna(va) else "N/A")
+                        c4.metric("VA Z-Score", f"{zscore:.2f}" if pd.notna(zscore) else "N/A")
+
+                        compare_df = pd.DataFrame(
+                            {
+                                "Type": ["Actual Earnings", "Predicted Earnings"],
+                                "Value": [actual, pred],
+                            }
+                        )
+                        compare_df = compare_df.dropna(subset=["Value"])
+
+                        if not compare_df.empty:
+                            bar = (
+                                alt.Chart(compare_df)
+                                .mark_bar()
+                                .encode(
+                                    x=alt.X("Type:N", sort=None),
+                                    y=alt.Y("Value:Q", title="Earnings"),
+                                    color=alt.Color("Type:N", title="Metric"),
+                                    tooltip=["Type:N", alt.Tooltip("Value:Q", format=",.0f")],
+                                )
+                                .properties(height=320)
+                            )
+                            st.altair_chart(bar, use_container_width=True)
+
+                        if pd.notna(va) and pd.notna(zscore):
+                            if va > 0:
+                                st.success(
+                                    f"Graduates in {selected_field} are above model expectation by ${va:,.0f} (z={zscore:.2f})."
+                                )
+                            else:
+                                st.error(
+                                    f"Graduates in {selected_field} are below model expectation by ${abs(va):,.0f} (z={zscore:.2f})."
+                                )
+        except Exception as exc:
+            st.warning(f"Could not load value-added dashboard data: {exc}")
 
 st.subheader("Selection Map")
 with st.container(border=True):
