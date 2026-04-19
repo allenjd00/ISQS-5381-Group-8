@@ -1,0 +1,148 @@
+@startuml
+' Help Code Map for College Match MVP
+left to right direction
+skinparam packageStyle rectangle
+skinparam shadowing false
+skinparam class {
+  BackgroundColor White
+  ArrowColor #666666
+  BorderColor #333333
+}
+skinparam stereotype {
+  CBackgroundColor #F3F7FF
+  CBorderColor #4D6AA3
+}
+
+legend right
+  |= Stereotype |= Object Type |
+  | <<Screen>> | Page / Screen |
+  | <<Popover>> | Popup Help |
+  | <<Dropdown>> | Select Box |
+  | <<Checkbox>> | Checkbox |
+  | <<NumberInput>> | Number Input |
+  | <<Slider>> | Slider |
+  | <<TextInput>> | Text Input |
+  | <<Table>> | Data Table |
+  | <<Field>> | Derived Field |
+  | <<Radio>> | Radio Control |
+  | <<Option>> | Mode Option |
+  | <<Label>> | Label / Caption |
+  | <<Chart>> | Chart / Graph |
+  | <<Cards>> | Metric Cards |
+  | <<Message>> | Info/Warning/Status Message |
+  | <<Panel>> | Debug/Display Panel |
+  | <<Markdown>> | Markdown Text Block |
+  | <<Expander>> | Expandable Section |
+endlegend
+
+package "(HOV) App Overview" {
+  class "APP\nCollege Match MVP\nScreen" as APP <<Screen>>
+  class "HLP\nHelp Popup\nPopover" as HLP <<Popover>>
+}
+
+package "(SPR) Preferences (Sidebar)" {
+  class "PST\nPreferred State\nDropdown" as PST <<Dropdown>>
+  class "RST\nRequire State\nCheckbox" as RST <<Checkbox>>
+  class "BGT\nMax Budget\nNumberInput" as BGT <<NumberInput>>
+  class "CKC\nRequire Known Cost\nCheckbox" as CKC <<Checkbox>>
+  class "TOP\nTop Results\nSlider" as TOP <<Slider>>
+  class "CFP\nCareer Preset\nDropdown" as CFP <<Dropdown>>
+  class "SKF\nStrict Career Filter\nCheckbox" as SKF <<Checkbox>>
+  class "IKW\nInclude Keywords\nTextInput" as IKW <<TextInput>>
+  class "EKW\nExclude Keywords\nTextInput" as EKW <<TextInput>>
+  class "WAC\nAcademic Weight\nSlider" as WAC <<Slider>>
+  class "WCO\nCost Weight\nSlider" as WCO <<Slider>>
+  class "WCR\nCareer Weight\nSlider" as WCR <<Slider>>
+  class "WLO\nLocation Weight\nSlider" as WLO <<Slider>>
+  class "WSF\nSafety Weight\nSlider" as WSF <<Slider>>
+}
+
+package "(STM) Top Matches" {
+  class "TBT\nTop X Matches\nTable" as TBT <<Table>>
+  class "RKU\nUser Rank\nField" as RKU <<Field>>
+  class "SCU\nComposite Score\nField" as SCU <<Field>>
+}
+
+package "(SPT) Price Trends" {
+  class "PTD\nSelected School\nDropdown" as PTD <<Dropdown>>
+  class "PTV\nView\nRadio" as PTV <<Radio>>
+  class "PT1\nHistorical Tuition & Fees\nOption" as PT1 <<Option>>
+  class "PT2\nFuture Tuition & Fees\nOption" as PT2 <<Option>>
+  class "PSL\nSchool Label\nLabel" as PSL <<Label>>
+  class "PUN\nLinked UNITID\nLabel" as PUN <<Label>>
+
+  package "(SHS) Historical" {
+    class "HS1\nPrice vs Median\nOption" as HS1 <<Option>>
+    class "HS2\nPrice Delta vs Market\nOption" as HS2 <<Option>>
+    class "HS3\nYoY % vs Market\nOption" as HS3 <<Option>>
+    class "GP1\nIn-State vs Median\nChart" as GP1 <<Chart>>
+    class "GP2\nOut-of-State vs Median\nChart" as GP2 <<Chart>>
+    class "GP3\nIn-State Dollar Delta\nChart" as GP3 <<Chart>>
+    class "GP4\nOut-of-State Dollar Delta\nChart" as GP4 <<Chart>>
+    class "GP5\nIn-State YoY vs Median\nChart" as GP5 <<Chart>>
+    class "GP6\nOut-of-State YoY vs Median\nChart" as GP6 <<Chart>>
+    class "E01\nNo Panel Rows\nMessage" as E01 <<Message>>
+  }
+
+  package "(SFT) Future Tuition+Fees" {
+    class "FP1\nForecast Trend\nChart" as FP1 <<Chart>>
+    class "FP2\nForecast Preview\nTable" as FP2 <<Table>>
+    class "FP3\nOverlap Detected\nMessage" as FP3 <<Message>>
+    class "FP4\nIn-State Split View\nChart" as FP4 <<Chart>>
+    class "FP5\nOut-of-State Split View\nChart" as FP5 <<Chart>>
+    class "E02\nInsufficient History\nMessage" as E02 <<Message>>
+  }
+}
+
+package "(SVA) Value-Added by Major" {
+  class "VAD\nCampus Selector\nSuppressed" as VAD <<Dropdown>>
+  class "VSO\nSource School\nLabel" as VSO <<Label>>
+  class "VAF\nSelect Field of Study\nDropdown" as VAF <<Dropdown>>
+  class "VAM\nSelect Earnings Metric\nDropdown" as VAM <<Dropdown>>
+  class "VMC\nSummary Metrics\nCards" as VMC <<Cards>>
+  class "VBG\nActual vs Predicted\nChart" as VBG <<Chart>>
+  class "VIN\nInterpretation\nMessage" as VIN <<Message>>
+  class "E03\nMissing Value-Added File\nMessage" as E03 <<Message>>
+  class "E04\nNo Rows for Selection\nMessage" as E04 <<Message>>
+}
+
+package "(SSM) Selection Map" {
+  class "MAP\nSelection Map\nPanel" as MAP <<Panel>>
+}
+
+package "(SRS) Why These Results" {
+  class "RSN\nWhy These Results\nMarkdown" as RSN <<Markdown>>
+  class "EXP\nExpanders\nExpander" as EXP <<Expander>>
+}
+
+APP --> HLP
+APP --> TBT
+APP --> PTV
+APP --> MAP
+APP --> RSN
+
+PTD --> TBT : selects from
+PTV --> PT1
+PTV --> PT2
+PT1 --> HS1
+PT1 --> HS2
+PT1 --> HS3
+HS1 --> GP1
+HS1 --> GP2
+HS2 --> GP3
+HS2 --> GP4
+HS3 --> GP5
+HS3 --> GP6
+PT2 --> FP1
+PT2 --> FP2
+FP3 --> FP4
+FP3 --> FP5
+PST --> VSO : override school
+TBT --> VSO : default school
+VSO --> VAF
+VAF --> VAM
+VAM --> VMC
+VAM --> VBG
+VAM --> VIN
+
+@enduml
